@@ -8,33 +8,32 @@ st.set_page_config(page_title="Gestão Pro Cloud", layout="wide")
 st.title("⚽ Gestão de Banca (Google Sheets)")
 
 # --- CONEXÃO COM GOOGLE SHEETS ---
-# Conecta à planilha
+# Conecta à planilha usando o segredo configurado
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# NOME DA ABA NA SUA PLANILHA DO GOOGLE
+# Se sua planilha estiver em inglês (Sheet1), mude aqui para "Sheet1"
+NOME_DA_ABA = "Página1"
+
 def carregar_dados():
-    try:
-        # Lê os dados da aba 'Página1' (ou Sheet1)
-        df = conn.read(worksheet="Página1", ttl="0") # ttl=0 para não usar cache antigo
-        # Garante que a data seja interpretada corretamente
-        if not df.empty and 'data_jogo' in df.columns:
-            df['data_jogo'] = pd.to_datetime(df['data_jogo'])
-        return df
-    except Exception as e:
-        st.error("Erro ao conectar na Planilha. Verifique se configurou os Segredos (Secrets) no Streamlit Cloud.")
-        st.stop()
+    # Tenta ler os dados. Se der erro, o Streamlit vai mostrar o erro real na tela.
+    # ttl=0 garante que ele não pegue dados velhos do cache
+    df = conn.read(worksheet=NOME_DA_ABA, ttl="0")
+    
+    # Garante que a data seja interpretada corretamente
+    if not df.empty and 'data_jogo' in df.columns:
+        df['data_jogo'] = pd.to_datetime(df['data_jogo'])
+    return df
 
 def salvar_no_google(df_novo):
-    try:
-        # Atualiza a planilha com o novo DataFrame
-        conn.update(worksheet="Página1", data=df_novo)
-        st.cache_data.clear() # Limpa cache para forçar atualização
-    except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+    # Atualiza a planilha com o novo DataFrame
+    conn.update(worksheet=NOME_DA_ABA, data=df_novo)
+    st.cache_data.clear() # Limpa cache para forçar atualização
 
 # --- FUNÇÕES DE LÓGICA ---
 def adicionar_aposta(nova_linha):
     df = carregar_dados()
-    # Se a planilha estiver vazia ou nova, cria o DataFrame
+    # Se a planilha estiver vazia ou nova, cria o DataFrame com as colunas certas
     if df.empty:
         df = pd.DataFrame(columns=['data_jogo', 'liga', 'time_casa', 'time_fora', 'mercado', 
                                    'probabilidade_site', 'odd_referencia', 'casa_aposta', 
@@ -56,14 +55,16 @@ menu = st.sidebar.selectbox("Menu", ["Dashboard", "Registrar Aposta", "Gerenciar
 
 if menu == "Dashboard":
     st.header("📊 Performance Global")
+    
+    # Carrega os dados (agora sem try/except para vermos o erro real se houver)
     df = carregar_dados()
     
     if not df.empty:
-        # Converter colunas numéricas caso venham como texto da planilha
+        # Tratamento de dados para evitar erros de cálculo
         df['lucro_prejuizo'] = pd.to_numeric(df['lucro_prejuizo'], errors='coerce').fillna(0)
         df['valor_aposta'] = pd.to_numeric(df['valor_aposta'], errors='coerce').fillna(0)
         
-        # Filtros e Métricas
+        # Filtra apenas as finalizadas
         df_final = df[df['resultado'] != 'Pendente']
         
         lucro = df_final['lucro_prejuizo'].sum()
@@ -84,7 +85,7 @@ if menu == "Dashboard":
             df_grafico['Acumulado'] = df_grafico['lucro_prejuizo'].cumsum()
             st.line_chart(df_grafico['Acumulado'])
     else:
-        st.info("A planilha está vazia. Registre uma aposta!")
+        st.info("A planilha está vazia. Vá em 'Registrar Aposta' para começar!")
 
 elif menu == "Registrar Aposta":
     st.header("📝 Registrar")
@@ -114,7 +115,7 @@ elif menu == "Gerenciar Resultados":
     st.header("📋 Pendentes")
     df = carregar_dados()
     if not df.empty:
-        # Filtra pendentes mantendo o índice original para poder editar
+        # Filtra pendentes
         pendentes = df[df['resultado'] == 'Pendente']
         
         if not pendentes.empty:
